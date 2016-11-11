@@ -38,7 +38,7 @@ class EspRom;
 class EspInterface : public QThread {
     Q_OBJECT
 public:
-    enum EspOperations {opConnect, opChipId,opFlashId,opReadFlash,opWriteFlash,opQuit};
+    enum EspOperations {opPortOpen,opConnect,opChipId,opFlashId,opReadFlash,opWriteFlash,opQuit};
     EspInterface(const QString &port, quint32 baud, QObject *parent=0);
     QVariant operationResultData() const { return mOperationData; }
     void chipId();
@@ -46,6 +46,8 @@ public:
     void readFlash(quint32 address, quint32 size);
     void writeFlash(quint32 address, QByteArray &data);
     void startOperation(EspOperations operation);
+    QString lastError() const { return mLastError; }
+    void setLastError(const QString &error) { mLastError = error; }
 protected:
     virtual void run();
 private slots:
@@ -61,6 +63,7 @@ private:
     bool mOperationResult;
     QVariant mOperationData;
     EspRom *mEsp;
+    QString mLastError;
 signals:
     void operationCompleted(int operation, bool result);
 };

@@ -43,8 +43,11 @@ public:
     enum FlashMode {qio=0, qout=1, dio=2, dout=3};
     enum FlashSize {size4m=0x00, size2m=0x10, size8m=0x20, size16m=0x30, size32m=0x40, size16m_c1=0x50, size32m_c1=0x60, size32m_c2=0x70};
     enum FlashSizeFreq {freq40m=0, freq26m=1, freq20m=2, freq80m=0xf};
-
-    EspRom(const QString &port, int baud, QObject *parent = 0);
+public:
+    void setLastError(const QString &error) { mLastError = error; }
+    QString lastError() const { return mLastError; }
+public:
+    EspRom(const QString &port, int baud, QObject *parent = 0);    
     bool connect();
     bool isPortOpen();
     void waitForReadyRead(int ms);
@@ -87,6 +90,8 @@ private:
 private:
     quint32 mLastReturnVal;
     QByteArray mLastRetData;
+private:
+    QString mLastError;
 };
 
 #endif // ESPROM_H

@@ -139,6 +139,8 @@ void MainClass::onOperationTerminated(int op, bool res) {
     qDebug("MainClass::onOperationTerminated %d %d",op, res);
 
     if(res == false) {
+        QTextStream out(stdout);
+        out << QCoreApplication::translate("main", "Error %1.\n\n").arg(mEspInt->lastError());
         qApp->exit();
     } else {
         if(op == EspInterface::opConnect) {

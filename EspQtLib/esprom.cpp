@@ -61,6 +61,9 @@
 #define ESP_OTP_MAC1    0x3ff00054
 #define ESP_OTP_MAC3    0x3ff0005c
 
+#define ERR_PortOpen    "%1 Port open failed"
+#define ERR_NotSynced   "Connect to device failed"
+
 typedef struct {
     quint8 resp;
     quint8 op_ret;
@@ -71,26 +74,31 @@ typedef struct {
 EspRom::EspRom(const QString &port, int baud, QObject *parent) : QObject(parent), mIsSynced(false), mPort(0), mBaudRate(baud), mPartialPacket(false) {
     mPort = new QSerialPort(port, this);
     mPort->setBaudRate(baud);
-    mPort->open(QIODevice::ReadWrite);
+    if(!mPort->open(QIODevice::ReadWrite)) {
+        setLastError(QString(ERR_PortOpen).arg(port));
+    }
 }
 
 bool EspRom::connect() {
-    qDebug("EspRom::connect");
-    mPort->setDataTerminalReady(false);
-    mPort->setRequestToSend(true);
-    thread()->msleep(50);
-    mPort->setDataTerminalReady(true);
-    mPort->setRequestToSend(false);
-    thread()->msleep(50);
-    mPort->setDataTerminalReady(false);
+    if(mPort->isOpen()) {
+        qDebug("EspRom::connect");
+        mPort->setDataTerminalReady(false);
+        mPort->setRequestToSend(true);
+        thread()->msleep(50);
+        mPort->setDataTerminalReady(true);
+        mPort->setRequestToSend(false);
+        thread()->msleep(50);
+        mPort->setDataTerminalReady(false);
 
-    mPort->flush();
-    if(sync()) {
-        return true;
-    } else {
-        qDebug("Failed to connect to ESP8266");
-        return false;
+        mPort->flush();
+        if(sync()) {
+            return true;
+        } else {
+            qDebug("Failed to connect to ESP8266");
+            setLastError(ERR_NotSynced);
+        }
     }
+    return false;
 }
 
 bool EspRom::isPortOpen() {

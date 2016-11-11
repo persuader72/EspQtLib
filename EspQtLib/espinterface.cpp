@@ -35,21 +35,21 @@ EspInterface::EspInterface(const QString &port, quint32 baud, QObject *parent) :
 }
 
 void EspInterface::chipId() {
-    if(mEsp) {
+    if(mEsp && mEsp->isPortOpen()) {
         mArgs.clear();
         startOperation(opChipId);
     }
 }
 
 void EspInterface::flashId() {
-    if(mEsp) {
+    if(mEsp && mEsp->isPortOpen()) {
         mArgs.clear();
         startOperation(opFlashId);
     }
 }
 
 void EspInterface::readFlash(quint32 address, quint32 size) {
-    if(mEsp) {
+    if(mEsp && mEsp->isPortOpen()) {
         mArgs.clear();
         mArgs.append(QVariant(address));
         mArgs.append(QVariant(size));
@@ -58,7 +58,7 @@ void EspInterface::readFlash(quint32 address, quint32 size) {
 }
 
 void EspInterface::writeFlash(quint32 address, QByteArray &data) {
-    if(mEsp) {
+    if(mEsp && mEsp->isPortOpen()) {
         mArgs.clear();
         mArgs.append(QVariant(address));
         mArgs.append(QVariant(data));
@@ -76,46 +76,55 @@ void EspInterface::startOperation(EspInterface::EspOperations operation) {
 void EspInterface::run() {
     qDebug("EspInterface::run thread start %s@%d",mPort.toLatin1().constData(),mBaud);
     mEsp = new EspRom(mPort, mBaud, 0);
-    while(mOperation != opQuit) {
-        mMutex.lock();
-        mOperationPending.wait(&mMutex);
-        mMutex.unlock();
 
-        mOperationResult = false;
-        mOperationData.clear();
+    if(!mEsp->isPortOpen()) {
+        emit operationCompleted(opPortOpen, 0);
+        setLastError(mEsp->lastError());
+    } else {
+        while(mEsp->isPortOpen() && mOperation != opQuit) {
+            mMutex.lock();
+            mOperationPending.wait(&mMutex);
+            mMutex.unlock();
 
-        if(mOperation == opConnect) {
-            mOperationResult = mEsp->connect();
+            mOperationResult = false;
+            mOperationData.clear();
 
-        } else if(mOperation == opChipId) {
-            quint32 chipid = mEsp->chipId();
-            mOperationData.fromValue(chipid);
-            mOperationResult = chipid != 0;
+            if(mOperation == opConnect) {
+                mOperationResult = mEsp->connect();
 
-        } else if(mOperation == opFlashId) {
-            quint32 flashid = mEsp->flashId();
-            mOperationData = QVariant(flashid);
-            mOperationResult = flashid != 0;
+            } else if(mOperation == opChipId) {
+                quint32 chipid = mEsp->chipId();
+                mOperationData.fromValue(chipid);
+                mOperationResult = chipid != 0;
 
-        } else if(mOperation == opReadFlash) {
-            quint32 address = mArgs.at(0).toInt();
-            quint32 size = mArgs.at(1).toInt();
-            mOperationData = QVariant(mEsp->flashRead(address,size));
-            mOperationResult = !mOperationData.isNull();
+            } else if(mOperation == opFlashId) {
+                quint32 flashid = mEsp->flashId();
+                mOperationData = QVariant(flashid);
+                mOperationResult = flashid != 0;
 
-        } else if(mOperation == opWriteFlash) {
-            quint32 address = mArgs.at(0).toInt();
-            QByteArray data = mArgs.at(1).toByteArray();
-            mOperationResult = mEsp->flashWrite(address, data);
+            } else if(mOperation == opReadFlash) {
+                quint32 address = mArgs.at(0).toInt();
+                quint32 size = mArgs.at(1).toInt();
+                mOperationData = QVariant(mEsp->flashRead(address,size));
+                mOperationResult = !mOperationData.isNull();
+
+            } else if(mOperation == opWriteFlash) {
+                quint32 address = mArgs.at(0).toInt();
+                QByteArray data = mArgs.at(1).toByteArray();
+                mOperationResult = mEsp->flashWrite(address, data);
+            }
+
+            if(!mOperationResult) setLastError(mEsp->lastError());
+            emit operationCompleted(mOperation, mOperationResult);
         }
-        emit operationCompleted(mOperation, mOperationResult);
+
+        delete mEsp;
     }
-    delete mEsp;
+
 }
 
 void EspInterface::onThreadStarted() {
     qDebug("EspInterface::onThreadStarted");
-
     // Dirty trick to wait that thread exec the first istructions
     thread()->msleep(100);
     // Connect with esp8266

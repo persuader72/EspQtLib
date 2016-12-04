@@ -170,7 +170,7 @@ bool EspFlasher::flashWrite(quint32 address, const QByteArray &data) {
 
             while(numSent < data.size() && numSent - written < 2048) {
                 QByteArray portion = data.mid(numSent, 1024);
-                qDebug("CesantaFlasher::flashWrite mEsp->write %d/%d,%d", numSent, written, portion.size());
+                //qDebug("CesantaFlasher::flashWrite mEsp->write %d/%d,%d", numSent, written, portion.size());
                 mEsp->portWrite(portion);
                 numSent += 1024;
             }

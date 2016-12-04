@@ -31,9 +31,11 @@ private slots:
     void onEspOperationTerminated(int op, bool res);
     void onFlasherProgress(int written);
 private:
+    void setBusyState(bool busy);
     void onEspConnected();
     void onWriteFinished();
     void onAllImageWrited();
+    void onDeviceRebooted();
 private:
     static bool fatItemLessThan(const FatItem &v1, const FatItem &v2) { return v1.flashAddress < v2.flashAddress; }
     int repositoryFileIndex(const QString &name);

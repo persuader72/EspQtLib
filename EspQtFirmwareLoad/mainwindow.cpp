@@ -9,12 +9,27 @@
 #include <QDebug>
 #include <QFileDialog>
 #include <QProgressBar>
+#include <QSerialPortInfo>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow), mEspInt(NULL), mCurrentRepoItem(0), mLastBytesWritten(0), mOldBytesWritten(0) {
     ui->setupUi(this);
     mProgress = new QProgressBar(this);
     mProgress->setMinimum(0);
     mProgress->setMaximum(1024);
+
+    QList<QSerialPortInfo> serialports = QSerialPortInfo::availablePorts();
+    for(int i=0;i<serialports.size();i++) {
+        ui->serialPorts->addItem(serialports.at(i).portName());
+    }
+
+    int sel = 0;
+    QList<qint32> baoudrates = QSerialPortInfo::standardBaudRates();
+    for(int i=0;i<baoudrates.size();i++) {
+        ui->baudRates->addItem(QString::number(baoudrates.at(i)));
+        if(baoudrates.at(i)==115200) sel = i;
+    }
+
+    ui->baudRates->setCurrentIndex(sel);
     ui->statusBar->addWidget(mProgress);
 }
 
@@ -91,7 +106,9 @@ void MainWindow::parseRepositoryFatFile(QByteArray &data) {
 
 void MainWindow::printReposistoryStats(const QString &reponame) {
     mLastBytesWritten = mOldBytesWritten = 0;
+    mProgress->setValue(0);
     mProgress->setMaximum(repositoryBytesToWrite());
+
     ui->programStatusView->appendPlainText(QString("Memory segments in %1 size %2 bytes").arg(reponame).arg(mProgress->maximum()));
     for(int i=0;i<mRepository.size();i++) {
         const FatItem &item = mRepository.at(i);
@@ -112,9 +129,14 @@ int MainWindow::repositoryBytesToWrite() {
 
 void MainWindow::on_flashDevice_clicked() {
     if(!mEspInt) {
-        mEspInt = new EspInterface("/dev/ttyUSB0", 460800, this);
+        QString portName = ui->serialPorts->currentText();
+        quint32 baudRate = ui->baudRates->currentText().toUInt();
+        mEspInt = new EspInterface(portName, baudRate, this);
         connect(mEspInt, SIGNAL(operationCompleted(int,bool)),this,SLOT(onEspOperationTerminated(int,bool)));
         connect(mEspInt, SIGNAL(flasherProgress(int)), this, SLOT(onFlasherProgress(int)));
+        mLastBytesWritten = mOldBytesWritten = 0;
+        mProgress->setValue(0);
+        setBusyState(true);
     } else {
         mEspInt->connectEsp();
     }
@@ -125,6 +147,7 @@ void MainWindow::onEspOperationTerminated(int op, bool res) {
 
     if(res == false) {
         ui->programStatusView->appendPlainText(QString("Error %1").arg(mEspInt->lastError()));
+        setBusyState(false);
     } else {
         if(op == EspInterface::opConnect) {
             onEspConnected();
@@ -133,6 +156,14 @@ void MainWindow::onEspOperationTerminated(int op, bool res) {
         } else if(op == EspInterface::opReadFlash) {
         } else if(op == EspInterface::opWriteFlash) {
             onWriteFinished();
+        } else if(op == EspInterface::opRebootFw) {
+            onDeviceRebooted();
+        } else if(op == EspInterface::opQuit) {
+            mEspInt->deleteLater();
+            mEspInt = 0;
+            setBusyState(false);
+        } else {
+
         }
     }
 }
@@ -141,6 +172,16 @@ void MainWindow::onFlasherProgress(int written) {
     if(written < mLastBytesWritten) mOldBytesWritten += mLastBytesWritten;
     mProgress->setValue(mOldBytesWritten + written);
     mLastBytesWritten = written;
+}
+
+void MainWindow::setBusyState(bool busy) {
+    if(busy) {
+        ui->seleectRepo->setEnabled(false);
+        ui->flashDevice->setEnabled(false);
+    } else {
+        ui->seleectRepo->setEnabled(true);
+        ui->flashDevice->setEnabled(true);
+    }
 }
 
 void MainWindow::onEspConnected() {
@@ -174,4 +215,8 @@ void MainWindow::onWriteFinished() {
 void MainWindow::onAllImageWrited() {
     //mCurrentRepoItem = 0;
     mEspInt->startOperation(EspInterface::opRebootFw);
+}
+
+void MainWindow::onDeviceRebooted() {
+    mEspInt->quitThread();
 }

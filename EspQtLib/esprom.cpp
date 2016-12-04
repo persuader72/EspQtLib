@@ -118,7 +118,7 @@ void EspRom::setBaudRate(int baudRate) {
 }
 
 quint64 EspRom::portWrite(const QByteArray &data) {
-    qDebug("EspRom::portWrite size:%d",data.size());
+    //qDebug("EspRom::portWrite size:%d",data.size());
     return mPort->isOpen() ? mPort->write(data) : 0;
 }
 
@@ -209,7 +209,6 @@ bool EspRom::rebootFw() {
 }
 
 void EspRom::onFlasherProgress(int written) {
-    qDebug("EspRom::onFlasherProgress %d",written);
     emit flasherProgress(written);
 }
 
@@ -296,7 +295,7 @@ bool EspRom::read() {
             //qDebug("EspRom::read packet end");
             mPartialPacket = false;
             endOfPacket = true;
-            qDebug("EspRom::read packet:%s", mLastPacket.toHex().toUpper().constData());
+            //qDebug("EspRom::read packet:%s", mLastPacket.toHex().toUpper().constData());
             break;
         } else {
             mLastPacket.append(byte);

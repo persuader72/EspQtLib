@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/binary">
         <file alias="cesanta.txt">res/cesanta.txt</file>
+        <file alias="stub_flasher.json">res/stub_flasher.json</file>
     </qresource>
 </RCC>

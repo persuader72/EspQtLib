@@ -34,11 +34,12 @@
 // Initial state for the checksum routine
 #define ESP_CHECKSUM_MAGIC 0xef
 
+class EspFlasher;
 class QSerialPort;
-class EspRom : QObject {
+class EspRom : public QObject {
     Q_OBJECT
 public:
-    friend class CesantaFlasher;
+    friend class EspFlasher;
 
     enum FlashMode {qio=0, qout=1, dio=2, dout=3};
     enum FlashSize {size4m=0x00, size2m=0x10, size8m=0x20, size16m=0x30, size32m=0x40, size16m_c1=0x50, size32m_c1=0x60, size32m_c2=0x70};
@@ -48,18 +49,21 @@ public:
     QString lastError() const { return mLastError; }
 public:
     EspRom(const QString &port, int baud, QObject *parent = 0);    
-    bool connect();
+    bool syncEsp();
     bool isPortOpen();
     void waitForReadyRead(int ms);
     quint32 portBaudRate();
     void setBaudRate(int baudRate);
-    void portWrite(const QByteArray &data);
+    quint64 portWrite(const QByteArray &data);
     bool isSynced() { return mIsSynced; }
     QByteArray macId();
     quint32 chipId();
     quint32 flashId();
     QByteArray flashRead(quint32 address, int size);
-    bool flashWrite(quint32 address, QByteArray &data, FlashMode mode=qio, FlashSize size=size4m, FlashSizeFreq freq=freq40m);
+    bool flashWrite(quint32 address, QByteArray &data, bool reboot, FlashMode mode=qio, FlashSize size=size4m, FlashSizeFreq freq=freq40m);
+    bool rebootFw();
+private slots:
+    void onFlasherProgress(int written);
 private:
     bool command(quint8 op=0, const QByteArray &data=0, quint32 chk=0);
     bool readTimeout(int timeout);
@@ -80,11 +84,14 @@ private:
     bool memBlock(const QByteArray &block, quint32 seq);
     bool memFinish(quint32 entrypoint=0);
     bool runStub(QString fileStub, QVector<quint32> params, bool readOutput=true);
+    void createFlasher();
+    void clearFlasher();
 private:
     bool mIsSynced;
     QSerialPort *mPort;
     int mBaudRate;
     bool mPartialPacket;
+    EspFlasher *mEspFlasher;
     QByteArray mLastPacket;
     QByteArray mInputBuffer;
 private:
@@ -92,6 +99,8 @@ private:
     QByteArray mLastRetData;
 private:
     QString mLastError;
+signals:
+    void flasherProgress(int written);
 };
 
 #endif // ESPROM_H

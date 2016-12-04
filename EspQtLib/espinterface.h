@@ -38,13 +38,15 @@ class EspRom;
 class EspInterface : public QThread {
     Q_OBJECT
 public:
-    enum EspOperations {opPortOpen,opConnect,opChipId,opFlashId,opReadFlash,opWriteFlash,opQuit};
+    enum EspOperations {opPortOpen,opConnect,opChipId,opFlashId,opReadFlash,opWriteFlash, opRebootFw, opQuit};
     EspInterface(const QString &port, quint32 baud, QObject *parent=0);
     QVariant operationResultData() const { return mOperationData; }
+    void connectEsp();
     void chipId();
     void flashId();
     void readFlash(quint32 address, quint32 size);
-    void writeFlash(quint32 address, QByteArray &data);
+    void writeFlash(quint32 address, const QByteArray &data, bool reboot);
+    void rebootFw();
     void startOperation(EspOperations operation);
     QString lastError() const { return mLastError; }
     void setLastError(const QString &error) { mLastError = error; }
@@ -52,6 +54,7 @@ protected:
     virtual void run();
 private slots:
     void onThreadStarted();
+    void onFlasherProgress(int written);
 private:
     QString mPort;
     int mBaud;
@@ -66,6 +69,7 @@ private:
     QString mLastError;
 signals:
     void operationCompleted(int operation, bool result);
+    void flasherProgress(int written);
 };
 
 #endif // ESPINTERFACE_H

@@ -13,13 +13,13 @@ CONFIG += staticlib
 
 SOURCES += \
     esprom.cpp \
-    cesantaflasher.cpp \
-    espinterface.cpp
+    espinterface.cpp \
+    espflasher.cpp
 
 HEADERS += \
     esprom.h \
-    cesantaflasher.h \
-    espinterface.h
+    espinterface.h \
+    espflasher.h
 unix {
     target.path = /usr/lib
     INSTALLS += target

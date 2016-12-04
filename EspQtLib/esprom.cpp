@@ -32,7 +32,7 @@
 #include <QtEndian>
 #include <QDebug>
 
-#include "cesantaflasher.h"
+#include "espflasher.h"
 
 // These are the currently known commands supported by the ROM
 #define ESP_NULL        0x00
@@ -71,7 +71,7 @@ typedef struct {
     quint32 val;
 } RetCmdStruct;
 
-EspRom::EspRom(const QString &port, int baud, QObject *parent) : QObject(parent), mIsSynced(false), mPort(0), mBaudRate(baud), mPartialPacket(false) {
+EspRom::EspRom(const QString &port, int baud, QObject *parent) : QObject(parent), mIsSynced(false), mPort(0), mBaudRate(baud), mPartialPacket(false),mEspFlasher(NULL) {
     mPort = new QSerialPort(port, this);
     mPort->setBaudRate(baud);
     if(!mPort->open(QIODevice::ReadWrite)) {
@@ -79,7 +79,7 @@ EspRom::EspRom(const QString &port, int baud, QObject *parent) : QObject(parent)
     }
 }
 
-bool EspRom::connect() {
+bool EspRom::syncEsp() {
     if(mPort->isOpen()) {
         qDebug("EspRom::connect");
         mPort->setDataTerminalReady(false);
@@ -117,8 +117,9 @@ void EspRom::setBaudRate(int baudRate) {
     mPort->setBaudRate(baudRate);
 }
 
-void EspRom::portWrite(const QByteArray &data) {
-    if(mPort->isOpen()) mPort->write(data);
+quint64 EspRom::portWrite(const QByteArray &data) {
+    qDebug("EspRom::portWrite size:%d",data.size());
+    return mPort->isOpen() ? mPort->write(data) : 0;
 }
 
 QByteArray EspRom::macId() {
@@ -166,12 +167,12 @@ quint32 EspRom::flashId() {
 }
 
 QByteArray EspRom::flashRead(quint32 address, int size) {
-    CesantaFlasher flasher = CesantaFlasher(this, mBaudRate, true);
+    EspFlasher flasher(this, mBaudRate);
     return flasher.flashRead(address, size);
 }
 
-bool EspRom::flashWrite(quint32 address, QByteArray &data, FlashMode mode, FlashSize size, FlashSizeFreq freq) {
-    CesantaFlasher flasher = CesantaFlasher(this, mBaudRate, true);
+bool EspRom::flashWrite(quint32 address, QByteArray &data, bool reboot, FlashMode mode, FlashSize size, FlashSizeFreq freq) {
+    createFlasher();
 
     if(address == 0 && (quint8)data.at(0) == 0xE9) {
         data[2] = (quint8)mode;
@@ -179,17 +180,37 @@ bool EspRom::flashWrite(quint32 address, QByteArray &data, FlashMode mode, Flash
     }
 
     if(data.size() % ESP_FLASH_SECTOR != 0) {
-
+        data.append(QByteArray(ESP_FLASH_SECTOR - (data.size() % ESP_FLASH_SECTOR), (char)0xFF));
+        qDebug("EspRom::flashWrite data expanded to size %d", data.size());
     }
 
-    if(!flasher.flashWrite(address, data)) {
-        qDebug("EspRom::flashWrite %s", flasher.lastError().toLatin1().constData());
+    if(!mEspFlasher->flashWrite(address, data)) {
+        qDebug("EspRom::flashWrite %s", mEspFlasher->lastError().toLatin1().constData());
+        clearFlasher();
     } else {
-        thread()->msleep(100);
-        return flasher.bootFw();
+        if(reboot) {
+            thread()->msleep(100);
+            bool res = mEspFlasher->bootFw();
+            clearFlasher();
+            return res;
+        } else {
+            return true;
+        }
     }
 
     return false;
+}
+
+bool EspRom::rebootFw() {
+    createFlasher();
+    bool res = mEspFlasher->bootFw();
+    clearFlasher();
+    return res;
+}
+
+void EspRom::onFlasherProgress(int written) {
+    qDebug("EspRom::onFlasherProgress %d",written);
+    emit flasherProgress(written);
 }
 
 bool EspRom::command(quint8 op,const QByteArray &data, quint32 chk) {
@@ -248,8 +269,6 @@ bool EspRom::read() {
         return false;
     }
 
-    //qDebug("EspRom::read packet:%s", mInputBuffer.toHex().toUpper().constData());
-
     bool endOfPacket = false;
     bool in_escape = false;
 
@@ -277,6 +296,7 @@ bool EspRom::read() {
             //qDebug("EspRom::read packet end");
             mPartialPacket = false;
             endOfPacket = true;
+            qDebug("EspRom::read packet:%s", mLastPacket.toHex().toUpper().constData());
             break;
         } else {
             mLastPacket.append(byte);
@@ -355,7 +375,7 @@ void EspRom::write(const QByteArray &packet) {
     }
 
     output[j++] = 0xC0;
-    //if(output.size() < 64) qDebug("EspRom::write packet:%d %s", output.size(), output.toHex().toUpper().constData());
+    if(output.size() < 64) qDebug("EspRom::write packet:%d %s", output.size(), output.toHex().toUpper().constData());
     mPort->write(output);
 }
 
@@ -573,4 +593,18 @@ bool EspRom::runStub(QString fileStub, QVector<quint32> params, bool readOutput)
     }
 
     return res;
+}
+
+void EspRom::createFlasher() {
+    if(!mEspFlasher) {
+        mEspFlasher = new EspFlasher(this, mBaudRate);
+        connect(mEspFlasher, SIGNAL(progress(int)), this ,SLOT(onFlasherProgress(int)));
+    }
+}
+
+void EspRom::clearFlasher() {
+    if(mEspFlasher) {
+        delete mEspFlasher;
+        mEspFlasher = NULL;
+    }
 }

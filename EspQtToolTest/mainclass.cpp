@@ -68,7 +68,7 @@ void MainClass::writeFlash(quint32 address, const QString &filename) {
 
     if(file.open(QIODevice::ReadOnly)) {
         QByteArray data =  file.readAll();
-        mEspInt->writeFlash(address, data);
+        mEspInt->writeFlash(address, data, true);
     } else {
         out << QString("Failed to read file %1\n").arg(filename);
     }

@@ -26,10 +26,11 @@
 #define CESANTAFLASHER_H
 #include "esprom.h"
 
-class CesantaFlasher {
+class EspFlasher : public QObject {
+    Q_OBJECT
 public:
     enum Errors { ReadError, UnexpectedData, ExpectedStatusCode, ExpectedDigest, DigestMismatch, WrongArguments, WriteFailure,  };
-    CesantaFlasher(EspRom *esp, quint32 baudRate=0, bool connect=true);
+    EspFlasher(EspRom *esp, quint32 baudRate=0);
     QString lastError() const { return mLastErrorMessage; }
     QByteArray flashRead(quint32 address, int size);
     bool flashWrite(quint32 address, const QByteArray &data);
@@ -45,6 +46,8 @@ private:
     quint8 mStatusCode;
     Errors mLastErrorCode;
     QString mLastErrorMessage;
+signals:
+    void progress(int written);
 };
 
 #endif // CESANTAFLASHER_H

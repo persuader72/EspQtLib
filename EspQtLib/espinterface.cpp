@@ -24,7 +24,7 @@
 
 #include "espinterface.h"
 
-#include "cesantaflasher.h"
+#include "espflasher.h"
 #include "esprom.h"
 
 EspInterface::EspInterface(const QString &port, quint32 baud, QObject *parent) : QThread(parent), mEsp(0) {
@@ -32,6 +32,13 @@ EspInterface::EspInterface(const QString &port, quint32 baud, QObject *parent) :
     connect(this,SIGNAL(started()),this,SLOT(onThreadStarted()));
     //connect(this,SIGNAL(finished()),this,SLOT(threadFinished()));
     start();
+}
+
+void EspInterface::connectEsp() {
+    if(mEsp && mEsp->isPortOpen()) {
+        mArgs.clear();
+        startOperation(opConnect);
+    }
 }
 
 void EspInterface::chipId() {
@@ -57,12 +64,20 @@ void EspInterface::readFlash(quint32 address, quint32 size) {
     }
 }
 
-void EspInterface::writeFlash(quint32 address, QByteArray &data) {
+void EspInterface::writeFlash(quint32 address, const QByteArray &data, bool reboot) {
     if(mEsp && mEsp->isPortOpen()) {
         mArgs.clear();
         mArgs.append(QVariant(address));
         mArgs.append(QVariant(data));
+        mArgs.append(QVariant(reboot));
         startOperation(opWriteFlash);
+    }
+}
+
+void EspInterface::rebootFw() {
+    if(mEsp && mEsp->isPortOpen()) {
+        mArgs.clear();
+        startOperation(opRebootFw);
     }
 }
 
@@ -76,6 +91,7 @@ void EspInterface::startOperation(EspInterface::EspOperations operation) {
 void EspInterface::run() {
     qDebug("EspInterface::run thread start %s@%d",mPort.toLatin1().constData(),mBaud);
     mEsp = new EspRom(mPort, mBaud, 0);
+    connect(mEsp,SIGNAL(flasherProgress(int)),this,SLOT(onFlasherProgress(int)));
 
     if(!mEsp->isPortOpen()) {
         emit operationCompleted(opPortOpen, 0);
@@ -90,7 +106,7 @@ void EspInterface::run() {
             mOperationData.clear();
 
             if(mOperation == opConnect) {
-                mOperationResult = mEsp->connect();
+                mOperationResult = mEsp->syncEsp();
 
             } else if(mOperation == opChipId) {
                 quint32 chipid = mEsp->chipId();
@@ -111,7 +127,11 @@ void EspInterface::run() {
             } else if(mOperation == opWriteFlash) {
                 quint32 address = mArgs.at(0).toInt();
                 QByteArray data = mArgs.at(1).toByteArray();
-                mOperationResult = mEsp->flashWrite(address, data);
+                bool reboot = mArgs.at(2).toBool();
+                mOperationResult = mEsp->flashWrite(address, data, reboot, EspRom::dio, EspRom::size32m, EspRom::freq40m);
+
+            } else if(mOperation == opRebootFw) {
+                mOperationResult = mEsp->rebootFw();
             }
 
             if(!mOperationResult) setLastError(mEsp->lastError());
@@ -129,5 +149,9 @@ void EspInterface::onThreadStarted() {
     thread()->msleep(100);
     // Connect with esp8266
     startOperation(opConnect);
+}
+
+void EspInterface::onFlasherProgress(int written) {
+    emit flasherProgress(written);
 }
 

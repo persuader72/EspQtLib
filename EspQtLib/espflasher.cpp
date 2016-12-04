@@ -22,12 +22,14 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "cesantaflasher.h"
+#include "espflasher.h"
 #include <QVector>
 #include <QtEndian>
 #include <QCryptographicHash>
+#include <QThread>
 
-#define CESANTA_FLASHER_STUB ":/binary/cesanta.txt"
+//#define CESANTA_FLASHER_STUB ":/binary/cesanta.txt"
+#define CESANTA_FLASHER_STUB ":/binary/stub_flasher.json"
 // Default baudrate. The ROM auto-bauds, so we can use more or less whatever we waitnt.
 #define ESP_ROM_BAUD    115200
 
@@ -46,17 +48,15 @@
 #define ERR_WriteFailure "Write failure, status: %1"
 #define ERR_UnexpectedData "Unexpected data received"
 
-CesantaFlasher::CesantaFlasher(EspRom *esp, quint32 baudRate, bool connect) : mEsp(esp), mRunStub(false) {
-    if(connect) {
-        qDebug("Running Cesanta flasher stub baud rate:%d", baudRate);
-        if(baudRate <= ESP_ROM_BAUD) {
-            baudRate = 0;
-        }
-
-        QVector<quint32> params(1,baudRate);
-        Q_INIT_RESOURCE(resources);
-        mEsp->runStub(CESANTA_FLASHER_STUB, params, false);
+EspFlasher::EspFlasher(EspRom *esp, quint32 baudRate) : QObject(esp), mEsp(esp), mRunStub(false) {
+    qDebug("Running Cesanta flasher stub baud rate:%d", baudRate);
+    if(baudRate <= ESP_ROM_BAUD) {
+        baudRate = 0;
     }
+
+    QVector<quint32> params(1,baudRate);
+    Q_INIT_RESOURCE(resources);
+    mEsp->runStub(CESANTA_FLASHER_STUB, params, false);
 
     if(baudRate > 0) {
         mEsp->setBaudRate(baudRate);
@@ -75,7 +75,7 @@ CesantaFlasher::CesantaFlasher(EspRom *esp, quint32 baudRate, bool connect) : mE
     }
 }
 
-QByteArray CesantaFlasher::flashRead(quint32 address, int size) {
+QByteArray EspFlasher::flashRead(quint32 address, int size) {
     qDebug("CesantaFlasher::flashRead addr:%d size:%d", address, size);
     mEsp->write(QByteArray(1,CMD_FLASH_READ));
     mEsp->write(address, size, 32, 64);
@@ -137,14 +137,14 @@ QByteArray CesantaFlasher::flashRead(quint32 address, int size) {
     return QByteArray();
 }
 
-bool CesantaFlasher::flashWrite(quint32 address, const QByteArray &data) {
+bool EspFlasher::flashWrite(quint32 address, const QByteArray &data) {
     if(address % ESP_FLASH_SECTOR != 0) {
-        setError(WrongArguments, QString(ERR_WrongArgument).arg("Address must be sector aligned"));
+        setError(WrongArguments, QString(ERR_WrongArgument).arg("Address must be sector aligned. Current size is"));
         return false;
     }
 
     if(data.size() % ESP_FLASH_SECTOR) {
-        setError(WrongArguments, QString(ERR_WrongArgument).arg("Size must be sector aligned"));
+        setError(WrongArguments, QString(ERR_WrongArgument).arg("Size must be sector aligned" + QString::number(data.size())));
         return false;
     }
 
@@ -158,6 +158,7 @@ bool CesantaFlasher::flashWrite(quint32 address, const QByteArray &data) {
         if(mEsp->readTimeout(1000)) {
             if(mEsp->mLastPacket.size() == 4) {
                 written = qFromLittleEndian(*(quint32 *)mEsp->mLastPacket.data());
+                emit progress(written);
             } else if(mEsp->mLastPacket.size() == 1) {
                 mStatusCode = (quint8)mEsp->mLastPacket.at(0);
                 setError(WriteFailure, QString(ERR_WriteFailure).arg(mStatusCode));
@@ -167,11 +168,11 @@ bool CesantaFlasher::flashWrite(quint32 address, const QByteArray &data) {
                 return false;
             }
 
-            if(written < data.size()) {
-                QByteArray portion = data.mid(written, 1024);
-                qDebug("CesantaFlasher::flashWrite mEsp->write %d,%d", written, portion.size());
-                mEsp->portWrite(data);
-                numSent += portion.size();
+            while(numSent < data.size() && numSent - written < 2048) {
+                QByteArray portion = data.mid(numSent, 1024);
+                qDebug("CesantaFlasher::flashWrite mEsp->write %d/%d,%d", numSent, written, portion.size());
+                mEsp->portWrite(portion);
+                numSent += 1024;
             }
         }
     }
@@ -207,7 +208,7 @@ bool CesantaFlasher::flashWrite(quint32 address, const QByteArray &data) {
     return mStatusCode == 0;
 }
 
-bool CesantaFlasher::flashDigest(QList<QByteArray> digests, quint32 address, quint32 size, quint32 digestBlockSize) {
+bool EspFlasher::flashDigest(QList<QByteArray> digests, quint32 address, quint32 size, quint32 digestBlockSize) {
     mEsp->write(CMD_FLASH_DIGEST);
     mEsp->write(address, size, digestBlockSize);
 
@@ -231,7 +232,7 @@ bool CesantaFlasher::flashDigest(QList<QByteArray> digests, quint32 address, qui
     return mStatusCode == 0;
 }
 
-bool CesantaFlasher::bootFw() {
+bool EspFlasher::bootFw() {
     mEsp->write(CMD_BOOT_FW);
     if(mEsp->readTimeout(1000)) {
         if(mEsp->lastPacketReaded().size() == 1) {
@@ -248,7 +249,7 @@ bool CesantaFlasher::bootFw() {
     return mStatusCode == 0;
 }
 
-void CesantaFlasher::setError(CesantaFlasher::Errors error, const QString &message) {
+void EspFlasher::setError(EspFlasher::Errors error, const QString &message) {
     mLastErrorCode = error;
     mLastErrorMessage = message;
     qDebug("CesantaFlasher::setError[%d] %s", error, message.toLatin1().constData());

@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
 
 
 
-    /*QCommandLineParser parser;
+    QCommandLineParser parser;
     parser.setApplicationDescription("EspQtTool - Tool for read/write flash of esp8266");
     parser.addHelpOption();
     parser.addVersionOption();
@@ -37,9 +37,9 @@ int main(int argc, char *argv[]) {
     int baudrate =  parser.value("baud").toInt(&ok);
 
     MainClass *mc = new MainClass(portname,  baudrate);
-    Q_UNUSED(mc);*/
+    Q_UNUSED(mc);
 
-    QFile f("/home/stefano/Scrivania/LightControl/FirmwareMaster/rboot.bin");
+    /*QFile f("rboot.bin");
     f.open(QIODevice::ReadOnly);
     QByteArray data = f.readAll();
     f.close();
@@ -49,8 +49,8 @@ int main(int argc, char *argv[]) {
 
     EspRom esprom("/dev/ttyUSB0",115200,0);
     esprom.syncEsp();
-    esprom.flashWrite(0x0,data,false);
+    esprom.flashWrite(0x0,data,false);*/
 
-    //return app.exec();
+    return app.exec();
 
 }

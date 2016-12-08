@@ -5,21 +5,14 @@
 #include <QPair>
 #include <QMainWindow>
 
+#include "firmwarerepository.h"
+
 namespace Ui {
 class MainWindow;
 }
 
 class QProgressBar;
 class EspInterface;
-class FatItem {
-public:
-    FatItem(quint32 address, const QString &name) : flashAddress(address), fileName(name) { }
-public:
-    quint32 flashAddress;
-    QString fileName;
-    QByteArray memoryData;
-};
-
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
@@ -37,14 +30,11 @@ private:
     void onAllImageWrited();
     void onDeviceRebooted();
 private:
-    static bool fatItemLessThan(const FatItem &v1, const FatItem &v2) { return v1.flashAddress < v2.flashAddress; }
-    int repositoryFileIndex(const QString &name);
-    void parseRepositoryFatFile(QByteArray &data);
     void printReposistoryStats(const QString &reponame);
     int repositoryBytesToWrite();
 private:
     Ui::MainWindow *ui;
-    QList<FatItem> mRepository;
+    FirmwareRepository mRepository;
     EspInterface *mEspInt;
     int mCurrentRepoItem;
     int mLastBytesWritten;

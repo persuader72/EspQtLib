@@ -42,65 +42,8 @@ void MainWindow::on_seleectRepo_clicked() {
     QString repoFIlePath = QFileDialog::getOpenFileName(this, tr("Select Repository"), QDir::currentPath(), QString("*.fwrepo"));
 
     if(!repoFIlePath.isNull()) {
-        QuaZip quazip(repoFIlePath);
-        QuaZipFile file(&quazip);
-        quazip.open(QuaZip::mdUnzip);
-        for(bool f=quazip.goToFirstFile(); f; f=quazip.goToNextFile()) {
-            QString fileName = quazip.getCurrentFileName();
-            if(fileName == "firmware_repository_fat.txt") {
-                file.open(QIODevice::ReadOnly);
-                quazip.getCurrentFileInfo(&info);
-                QByteArray content = file.read(file.size());
-                parseRepositoryFatFile(content);
-                file.close();
-            }
-
-        }
-
-        qSort(mRepository.begin(), mRepository.end(), fatItemLessThan);
-
-        for(bool f=quazip.goToFirstFile(); f; f=quazip.goToNextFile()) {
-            QString fileName = quazip.getCurrentFileName();
-            int index = repositoryFileIndex(fileName);
-            if(index != -1) {
-                file.open(QIODevice::ReadOnly);
-                quazip.getCurrentFileInfo(&info);
-                QByteArray content = file.read(file.size());
-                mRepository[index].memoryData = content;
-                file.close();
-            }
-        }
-
+        mRepository.loadFromFile(repoFIlePath, false);
         printReposistoryStats(repoFIlePath);
-    }
-}
-
-int MainWindow::repositoryFileIndex(const QString &name) {
-    int found = -1;
-    for(int i=0;i<mRepository.size();i++) {
-        if(mRepository.at(i).fileName == name) {
-            found = i;
-            break;
-        }
-    }
-    return found;
-}
-
-void MainWindow::parseRepositoryFatFile(QByteArray &data) {
-    bool ok;
-    QTextStream ts(&data);
-
-    while(!ts.atEnd()) {
-        QString line = ts.readLine();
-        if(line.contains(':')) {
-            QStringList fields = line.split(':');
-            if(fields.size()==2) {
-                QString addressText = fields.at(0);
-                quint32 address = addressText.toUInt(&ok, 16);
-                QString fileName = fields.at(1);
-                mRepository.append(FatItem(address, fileName));
-            }
-        }
     }
 }
 
@@ -110,16 +53,16 @@ void MainWindow::printReposistoryStats(const QString &reponame) {
     mProgress->setMaximum(repositoryBytesToWrite());
 
     ui->programStatusView->appendPlainText(QString("Memory segments in %1 size %2 bytes").arg(reponame).arg(mProgress->maximum()));
-    for(int i=0;i<mRepository.size();i++) {
-        const FatItem &item = mRepository.at(i);
+    for(int i=0;i<mRepository.items().size();i++) {
+        const FatItem &item = mRepository.items().at(i);
         ui->programStatusView->appendPlainText(QString("0x%1 0x%2 %3").arg(item.flashAddress,6,16,QChar('0')).arg(item.memoryData.size(),5,16,QChar('0')).arg(item.fileName));
     }
 }
 
 int MainWindow::repositoryBytesToWrite() {
     int totSize = 0;
-    for(int i=0;i<mRepository.size();i++) {
-        const FatItem &item = mRepository.at(i);
+    for(int i=0;i<mRepository.items().size();i++) {
+        const FatItem &item = mRepository.items().at(i);
         quint32 size = item.memoryData.size();
         if(size % 0x1000 != 0) size += 0x1000 - (size % 0x1000);
         totSize += size;
@@ -186,10 +129,10 @@ void MainWindow::setBusyState(bool busy) {
 
 void MainWindow::onEspConnected() {
     mCurrentRepoItem = 0;
-    while(mCurrentRepoItem<mRepository.size() && mRepository.at(mCurrentRepoItem).memoryData.isEmpty()) mCurrentRepoItem++;
+    while(mCurrentRepoItem<mRepository.items().size() && mRepository.items().at(mCurrentRepoItem).memoryData.isEmpty()) mCurrentRepoItem++;
 
-    if(mCurrentRepoItem<mRepository.size()) {
-        const FatItem &item = mRepository.at(mCurrentRepoItem);
+    if(mCurrentRepoItem<mRepository.items().size()) {
+        const FatItem &item = mRepository.items().at(mCurrentRepoItem);
         ui->programStatusView->appendPlainText(QString("%1 bytes at address %2 - %3").arg(item.memoryData.size(),5,16,QChar('0')).arg(item.flashAddress,6,16,QChar('0')).arg(item.fileName));
         mEspInt->writeFlash(item.flashAddress, item.memoryData, false);
     } else {
@@ -199,10 +142,10 @@ void MainWindow::onEspConnected() {
 
 void MainWindow::onWriteFinished() {
     mCurrentRepoItem += 1;
-    while(mCurrentRepoItem<mRepository.size() && mRepository.at(mCurrentRepoItem).memoryData.isEmpty()) mCurrentRepoItem++;
+    while(mCurrentRepoItem<mRepository.items().size() && mRepository.items().at(mCurrentRepoItem).memoryData.isEmpty()) mCurrentRepoItem++;
 
-    if(mCurrentRepoItem<mRepository.size()) {
-        const FatItem &item = mRepository.at(mCurrentRepoItem);
+    if(mCurrentRepoItem<mRepository.items().size()) {
+        const FatItem &item = mRepository.items().at(mCurrentRepoItem);
         ui->programStatusView->appendPlainText(QString("%1 bytes at address %2 - %3").arg(item.memoryData.size(),5,16,QChar('0')).arg(item.flashAddress,6,16,QChar('0')).arg(item.fileName));
         QThread::msleep(50); // FIXME very bad line to syncronize thread
         mEspInt->writeFlash(item.flashAddress, item.memoryData, false);

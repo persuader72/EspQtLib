@@ -18,6 +18,12 @@
     <item>
      <layout class="QHBoxLayout" name="horizontalLayout">
       <item>
+       <widget class="QComboBox" name="serialPorts"/>
+      </item>
+      <item>
+       <widget class="QComboBox" name="baudRates"/>
+      </item>
+      <item>
        <widget class="QLineEdit" name="repoFileName"/>
       </item>
       <item>

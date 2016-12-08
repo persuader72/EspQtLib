@@ -81,6 +81,13 @@ void EspInterface::rebootFw() {
     }
 }
 
+void EspInterface::quitThread() {
+    if(mEsp && mEsp->isPortOpen()) {
+        mArgs.clear();
+        startOperation(opQuit);
+    }
+}
+
 void EspInterface::startOperation(EspInterface::EspOperations operation) {
     mOperation = operation;
     mMutex.lock();
@@ -132,15 +139,19 @@ void EspInterface::run() {
 
             } else if(mOperation == opRebootFw) {
                 mOperationResult = mEsp->rebootFw();
+
+            } else if(mOperation == opQuit) {
+                mOperationResult = true;
             }
 
             if(!mOperationResult) setLastError(mEsp->lastError());
-            emit operationCompleted(mOperation, mOperationResult);
+            if(mOperation != opQuit) emit operationCompleted(mOperation, mOperationResult);
         }
 
         delete mEsp;
     }
 
+    emit operationCompleted(opQuit, true);
 }
 
 void EspInterface::onThreadStarted() {

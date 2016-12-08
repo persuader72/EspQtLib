@@ -47,6 +47,7 @@ public:
     void readFlash(quint32 address, quint32 size);
     void writeFlash(quint32 address, const QByteArray &data, bool reboot);
     void rebootFw();
+    void quitThread();
     void startOperation(EspOperations operation);
     QString lastError() const { return mLastError; }
     void setLastError(const QString &error) { mLastError = error; }

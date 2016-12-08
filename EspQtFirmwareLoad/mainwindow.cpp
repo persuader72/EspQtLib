@@ -9,12 +9,27 @@
 #include <QDebug>
 #include <QFileDialog>
 #include <QProgressBar>
+#include <QSerialPortInfo>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow), mEspInt(NULL), mCurrentRepoItem(0), mLastBytesWritten(0), mOldBytesWritten(0) {
     ui->setupUi(this);
     mProgress = new QProgressBar(this);
     mProgress->setMinimum(0);
     mProgress->setMaximum(1024);
+
+    QList<QSerialPortInfo> serialports = QSerialPortInfo::availablePorts();
+    for(int i=0;i<serialports.size();i++) {
+        ui->serialPorts->addItem(serialports.at(i).portName());
+    }
+
+    int sel = 0;
+    QList<qint32> baoudrates = QSerialPortInfo::standardBaudRates();
+    for(int i=0;i<baoudrates.size();i++) {
+        ui->baudRates->addItem(QString::number(baoudrates.at(i)));
+        if(baoudrates.at(i)==115200) sel = i;
+    }
+
+    ui->baudRates->setCurrentIndex(sel);
     ui->statusBar->addWidget(mProgress);
 }
 
@@ -27,82 +42,27 @@ void MainWindow::on_seleectRepo_clicked() {
     QString repoFIlePath = QFileDialog::getOpenFileName(this, tr("Select Repository"), QDir::currentPath(), QString("*.fwrepo"));
 
     if(!repoFIlePath.isNull()) {
-        QuaZip quazip(repoFIlePath);
-        QuaZipFile file(&quazip);
-        quazip.open(QuaZip::mdUnzip);
-        for(bool f=quazip.goToFirstFile(); f; f=quazip.goToNextFile()) {
-            QString fileName = quazip.getCurrentFileName();
-            if(fileName == "firmware_repository_fat.txt") {
-                file.open(QIODevice::ReadOnly);
-                quazip.getCurrentFileInfo(&info);
-                QByteArray content = file.read(file.size());
-                parseRepositoryFatFile(content);
-                file.close();
-            }
-
-        }
-
-        qSort(mRepository.begin(), mRepository.end(), fatItemLessThan);
-
-        for(bool f=quazip.goToFirstFile(); f; f=quazip.goToNextFile()) {
-            QString fileName = quazip.getCurrentFileName();
-            int index = repositoryFileIndex(fileName);
-            if(index != -1) {
-                file.open(QIODevice::ReadOnly);
-                quazip.getCurrentFileInfo(&info);
-                QByteArray content = file.read(file.size());
-                mRepository[index].memoryData = content;
-                file.close();
-            }
-        }
-
+        mRepository.loadFromFile(repoFIlePath, false);
         printReposistoryStats(repoFIlePath);
-    }
-}
-
-int MainWindow::repositoryFileIndex(const QString &name) {
-    int found = -1;
-    for(int i=0;i<mRepository.size();i++) {
-        if(mRepository.at(i).fileName == name) {
-            found = i;
-            break;
-        }
-    }
-    return found;
-}
-
-void MainWindow::parseRepositoryFatFile(QByteArray &data) {
-    bool ok;
-    QTextStream ts(&data);
-
-    while(!ts.atEnd()) {
-        QString line = ts.readLine();
-        if(line.contains(':')) {
-            QStringList fields = line.split(':');
-            if(fields.size()==2) {
-                QString addressText = fields.at(0);
-                quint32 address = addressText.toUInt(&ok, 16);
-                QString fileName = fields.at(1);
-                mRepository.append(FatItem(address, fileName));
-            }
-        }
     }
 }
 
 void MainWindow::printReposistoryStats(const QString &reponame) {
     mLastBytesWritten = mOldBytesWritten = 0;
+    mProgress->setValue(0);
     mProgress->setMaximum(repositoryBytesToWrite());
+
     ui->programStatusView->appendPlainText(QString("Memory segments in %1 size %2 bytes").arg(reponame).arg(mProgress->maximum()));
-    for(int i=0;i<mRepository.size();i++) {
-        const FatItem &item = mRepository.at(i);
+    for(int i=0;i<mRepository.items().size();i++) {
+        const FatItem &item = mRepository.items().at(i);
         ui->programStatusView->appendPlainText(QString("0x%1 0x%2 %3").arg(item.flashAddress,6,16,QChar('0')).arg(item.memoryData.size(),5,16,QChar('0')).arg(item.fileName));
     }
 }
 
 int MainWindow::repositoryBytesToWrite() {
     int totSize = 0;
-    for(int i=0;i<mRepository.size();i++) {
-        const FatItem &item = mRepository.at(i);
+    for(int i=0;i<mRepository.items().size();i++) {
+        const FatItem &item = mRepository.items().at(i);
         quint32 size = item.memoryData.size();
         if(size % 0x1000 != 0) size += 0x1000 - (size % 0x1000);
         totSize += size;
@@ -112,9 +72,14 @@ int MainWindow::repositoryBytesToWrite() {
 
 void MainWindow::on_flashDevice_clicked() {
     if(!mEspInt) {
-        mEspInt = new EspInterface("/dev/ttyUSB0", 460800, this);
+        QString portName = ui->serialPorts->currentText();
+        quint32 baudRate = ui->baudRates->currentText().toUInt();
+        mEspInt = new EspInterface(portName, baudRate, this);
         connect(mEspInt, SIGNAL(operationCompleted(int,bool)),this,SLOT(onEspOperationTerminated(int,bool)));
         connect(mEspInt, SIGNAL(flasherProgress(int)), this, SLOT(onFlasherProgress(int)));
+        mLastBytesWritten = mOldBytesWritten = 0;
+        mProgress->setValue(0);
+        setBusyState(true);
     } else {
         mEspInt->connectEsp();
     }
@@ -125,6 +90,7 @@ void MainWindow::onEspOperationTerminated(int op, bool res) {
 
     if(res == false) {
         ui->programStatusView->appendPlainText(QString("Error %1").arg(mEspInt->lastError()));
+        setBusyState(false);
     } else {
         if(op == EspInterface::opConnect) {
             onEspConnected();
@@ -133,6 +99,14 @@ void MainWindow::onEspOperationTerminated(int op, bool res) {
         } else if(op == EspInterface::opReadFlash) {
         } else if(op == EspInterface::opWriteFlash) {
             onWriteFinished();
+        } else if(op == EspInterface::opRebootFw) {
+            onDeviceRebooted();
+        } else if(op == EspInterface::opQuit) {
+            mEspInt->deleteLater();
+            mEspInt = 0;
+            setBusyState(false);
+        } else {
+
         }
     }
 }
@@ -143,12 +117,22 @@ void MainWindow::onFlasherProgress(int written) {
     mLastBytesWritten = written;
 }
 
+void MainWindow::setBusyState(bool busy) {
+    if(busy) {
+        ui->seleectRepo->setEnabled(false);
+        ui->flashDevice->setEnabled(false);
+    } else {
+        ui->seleectRepo->setEnabled(true);
+        ui->flashDevice->setEnabled(true);
+    }
+}
+
 void MainWindow::onEspConnected() {
     mCurrentRepoItem = 0;
-    while(mCurrentRepoItem<mRepository.size() && mRepository.at(mCurrentRepoItem).memoryData.isEmpty()) mCurrentRepoItem++;
+    while(mCurrentRepoItem<mRepository.items().size() && mRepository.items().at(mCurrentRepoItem).memoryData.isEmpty()) mCurrentRepoItem++;
 
-    if(mCurrentRepoItem<mRepository.size()) {
-        const FatItem &item = mRepository.at(mCurrentRepoItem);
+    if(mCurrentRepoItem<mRepository.items().size()) {
+        const FatItem &item = mRepository.items().at(mCurrentRepoItem);
         ui->programStatusView->appendPlainText(QString("%1 bytes at address %2 - %3").arg(item.memoryData.size(),5,16,QChar('0')).arg(item.flashAddress,6,16,QChar('0')).arg(item.fileName));
         mEspInt->writeFlash(item.flashAddress, item.memoryData, false);
     } else {
@@ -158,10 +142,10 @@ void MainWindow::onEspConnected() {
 
 void MainWindow::onWriteFinished() {
     mCurrentRepoItem += 1;
-    while(mCurrentRepoItem<mRepository.size() && mRepository.at(mCurrentRepoItem).memoryData.isEmpty()) mCurrentRepoItem++;
+    while(mCurrentRepoItem<mRepository.items().size() && mRepository.items().at(mCurrentRepoItem).memoryData.isEmpty()) mCurrentRepoItem++;
 
-    if(mCurrentRepoItem<mRepository.size()) {
-        const FatItem &item = mRepository.at(mCurrentRepoItem);
+    if(mCurrentRepoItem<mRepository.items().size()) {
+        const FatItem &item = mRepository.items().at(mCurrentRepoItem);
         ui->programStatusView->appendPlainText(QString("%1 bytes at address %2 - %3").arg(item.memoryData.size(),5,16,QChar('0')).arg(item.flashAddress,6,16,QChar('0')).arg(item.fileName));
         QThread::msleep(50); // FIXME very bad line to syncronize thread
         mEspInt->writeFlash(item.flashAddress, item.memoryData, false);
@@ -174,4 +158,8 @@ void MainWindow::onWriteFinished() {
 void MainWindow::onAllImageWrited() {
     //mCurrentRepoItem = 0;
     mEspInt->startOperation(EspInterface::opRebootFw);
+}
+
+void MainWindow::onDeviceRebooted() {
+    mEspInt->quitThread();
 }
